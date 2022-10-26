@@ -13,6 +13,30 @@ def percentage(part, whole):
   else:
     return float(part)/float(whole)
 
+def calc_returns(vendor, return_rate, outboundunits):
+  nri_returnflatfee=3.05
+  nri_hourlyrate=45
+  nri_minutesperbox=1
+
+  lb_returnflatfee=5
+  lb_hourlyrate=40
+  lb_minutesperbox=2
+
+  diy_cr_returns_per_hour=6
+  diy_cr_hourly_wage=30
+  
+  
+  numberofreturns=outboundunits*percentage(return_rate, 100)
+
+  if vendor == 'NRI':
+    return (numberofreturns*nri_returnflatfee+(nri_minutesperbox*numberofreturns/60*nri_hourlyrate))
+
+  if vendor == 'LB':
+    return (numberofreturns*lb_returnflatfee+(lb_minutesperbox*numberofreturns/60*lb_hourlyrate))
+
+  if vendor == 'DIY':
+    return (numberofreturns/diy_cr_returns_per_hour*diy_cr_hourly_wage)
+
 def calc_receive(vendor, inboundunits, unitreceivecost, mixedskurepackcost, mixed_sku_percentage, totalinboundunits):
   realmixed_sku_percentage=percentage(mixed_sku_percentage, 100)
   repackcost=inboundunits*realmixed_sku_percentage*mixedskurepackcost
@@ -93,7 +117,7 @@ def calc_storage(vendor, unitsonhand, outboundunits, storagecostpercubicft, type
 
 def calc_coldstorage(vendor): 
     pricepersqft=1.55
-    requiredsqft=2880/2
+    requiredsqft=4000/2
     # here is a little room to move around
     moveaboutroom=1.20
     gasfor20mi=50
@@ -176,11 +200,27 @@ filecsv=(args_list[1])
 df = pd.read_csv(filecsv, low_memory=False)
 
 yearly_cost=0
+total_initialsetup_cost=0
+total_outbound_sneakers=0
+total_outbound_boots=0
+total_admin_cost=0
+total_pickpack_cost=0
+total_box_boot_cost=0
+total_box_shoe_cost=0
+total_storage_cost=0
+total_receive_cost=0
+total_postage_boots=0
+total_postage_shoes=0
+total_cold_storage_cost=0
+total_returns_cost=0
 averageordersize=float(1.2)
 mixed_sku_percentage=10
 sneakers_on_hand=int(0)
 boots_on_hand=int(0)
 total_cost=int(0)
+msrp_sneaker=120
+msrp_boot=200
+return_rate=15
 
 if plname == 'DIY':
    onboarding_cost=int(0)
@@ -223,6 +263,10 @@ print("Order With One Pick Cost:", '${:,.2f}'.format(onepickordercost))
 print("Order With Two Pick Cost:", '${:,.2f}'.format(twopickordercost))
 print("Order With Three Pick Cost:", '${:,.2f}'.format(threepickordercost))
 print_stor(plname, storagecostpercubicft)
+print("MSRP sneaker:", '${:,.2f}'.format(msrp_sneaker))
+print("MSRP boot:", '${:,.2f}'.format(msrp_boot))
+print("Return Rate:", '{:,.2f}'.format(return_rate), "%")
+
 print("")
 print("")
 
@@ -273,11 +317,13 @@ for index, row in df.iterrows():
     shoe_box_cost = calc_boxcosts(plname, outbound_sneakers, "shoes")
     shoe_storage_cost = calc_storage(plname, sneakers_on_hand, outbound_sneakers, storagecostpercubicft, "shoes", sneakers_on_hand + boots_on_hand)
     shoe_shipping_cost = calc_shipping(plname, outbound_sneakers, "shoes")
+    shoe_returns_cost = calc_returns(plname, return_rate, outbound_sneakers)
   else:
     shoe_pick_pack_cost = calc_pickpack(plname, onepickordercost, twopickordercost, sneakers_on_hand)
     shoe_box_cost = calc_boxcosts(plname, sneakers_on_hand, "shoes")
     shoe_storage_cost = calc_storage(plname, outbound_sneakers, outbound_sneakers, storagecostpercubicft, "shoes", outbound_sneakers + boots_on_hand)
     shoe_shipping_cost = calc_shipping(plname, sneakers_on_hand, "shoes")
+    shoe_returns_cost = calc_returns(plname, return_rate, sneakers_on_hand)
 
 ### BOOTS
   boot_receive_cost = calc_receive(plname, inbound_boots, bootreceivecost, mixedskurepackcost, mixed_sku_percentage, inbound_sneakers+inbound_boots)
@@ -287,31 +333,67 @@ for index, row in df.iterrows():
     boot_box_cost = calc_boxcosts(plname, outbound_boots, "boots")
     boot_storage_cost = calc_storage(plname, boots_on_hand, outbound_boots, storagecostpercubicft, "boots",  boots_on_hand + sneakers_on_hand)
     boot_shipping_cost = calc_shipping(plname, outbound_boots, "boots")
+    boot_returns_cost = calc_returns(plname, return_rate, outbound_boots)
   else:
     boot_pick_pack_cost = calc_pickpack(plname, onepickordercost, twopickordercost, boots_on_hand)
     boot_box_cost = calc_boxcosts(plname, boots_on_hand, "boots")
     boot_storage_cost = calc_storage(plname, outbound_boots, outbound_boots, storagecostpercubicft, "boots", outbound_boots + sneakers_on_hand)
     boot_shipping_cost = calc_shipping(plname, boots_on_hand, "boots")
+    boot_returns_cost = calc_returns(plname, return_rate, boots_on_hand)
 
   if month == 1:
     initialsetup_cost=calc_initialsetup(plname)
+    total_initialsetup_cost=initialsetup_cost
     print("One Time Setup Cost:", '${:,.2f}'.format(initialsetup_cost))
   else:
     initialsetup_cost=0
 
+  #tally monthy admin fees
+  total_admin_cost+=monthly_fees
+
+  # tally receive cost
+  total_receive_cost+=(shoe_receive_cost+boot_receive_cost)
+
+  # tally pick/pack cost
+  total_pickpack_cost+=(shoe_pick_pack_cost+boot_pick_pack_cost)
+  
+  # tally box cost
+  total_box_shoe_cost+=shoe_box_cost
+  total_box_boot_cost+=boot_box_cost
+
+  # tally storage cost
+  total_storage_cost+=(shoe_storage_cost+boot_storage_cost)
+
+  #tally postage cost
+  total_postage_boots+=boot_shipping_cost
+  total_postage_shoes+=shoe_shipping_cost
+
   cold_storage_cost = calc_coldstorage(plname)
+
+  #tally cold storage cost
+  total_cold_storage_cost+=cold_storage_cost
+
+  #tally total returns cost
+  total_returns_cost+=(shoe_returns_cost+boot_returns_cost)
 
   print("Sneaker Receiving Cost:", '${:,.2f}'.format(shoe_receive_cost))
   print("Sneaker Pick/Pack Cost:", '${:,.2f}'.format(shoe_pick_pack_cost))
-  print("Sneaker Shipping Box Cost:", '${:,.2f}'.format(shoe_box_cost))
+  print("Sneaker Cardboard Shipping Box Cost:", '${:,.2f}'.format(shoe_box_cost))
   print("Sneaker Storage Cost:", '${:,.2f}'.format(shoe_storage_cost))
-  print("Sneaker Shipping Cost:", '${:,.2f}'.format(shoe_shipping_cost))
+  print("Sneaker Postage Cost:", '${:,.2f}'.format(shoe_shipping_cost))
+  print("Sneaker Returns Cost:", '${:,.2f}'.format(shoe_returns_cost))
   print("Cold Storage, Truck Rental, Gas and Labor Cost (if reqd):", '${:,.2f}'.format(cold_storage_cost))
   print("Boot Receiving Cost:", '${:,.2f}'.format(boot_receive_cost))
   print("Boot Pick/Pack Cost:", '${:,.2f}'.format(boot_pick_pack_cost))
-  print("Boot Shipping Box Cost:", '${:,.2f}'.format(boot_box_cost))
+  print("Boot Cardboard Shipping Box Cost:", '${:,.2f}'.format(boot_box_cost))
   print("Boot Storage Cost:", '${:,.2f}'.format(boot_storage_cost))
-  print("Boot Shipping Cost:", '${:,.2f}'.format(boot_shipping_cost))
+  print("Boot Postage Cost:", '${:,.2f}'.format(boot_shipping_cost))
+  print("Boot Returns Cost:", '${:,.2f}'.format(boot_returns_cost))
+
+  total_outbound_sneakers += outbound_sneakers 
+  print("total_outbound_sneakers:", total_outbound_sneakers)
+  total_outbound_boots += outbound_boots
+  print("total_outbound_boots:", total_outbound_boots)
 
   sneakers_on_hand-=outbound_sneakers
   if sneakers_on_hand <= 0:
@@ -324,9 +406,27 @@ for index, row in df.iterrows():
   print("Sneakers On-hand at end of Month:", sneakers_on_hand)
   print("Boots On-hand at end of Month:", boots_on_hand)
   
-  monthly_cost=shoe_receive_cost+boot_receive_cost+shoe_pick_pack_cost+shoe_box_cost+shoe_storage_cost+shoe_shipping_cost+boot_pick_pack_cost+boot_box_cost+boot_storage_cost+boot_shipping_cost+initialsetup_cost+monthly_fees+cold_storage_cost
+  monthly_cost=monthly_fees+shoe_receive_cost+shoe_pick_pack_cost+shoe_box_cost+shoe_storage_cost+shoe_shipping_cost+shoe_returns_cost+boot_receive_cost+boot_pick_pack_cost+boot_box_cost+boot_storage_cost+boot_shipping_cost+boot_returns_cost+initialsetup_cost+cold_storage_cost
   yearly_cost += monthly_cost
   print("Monthly Cost:", '${:,.2f}'.format(monthly_cost))
   print("")
 
+print("Total Initial Setup Fees:", '${:,.2f}'.format(total_initialsetup_cost))
+print("Total Monthly Fees (Software/Admin):", '${:,.2f}'.format(total_admin_cost))
+print("Total Receiving Cost:", '${:,.2f}'.format(total_receive_cost))
+print("Total Pick/Pack Cost:", '${:,.2f}'.format(total_pickpack_cost))
+print("Total Sneaker Cardboard Box Cost:", '${:,.2f}'.format(total_box_shoe_cost))
+print("Total Boot Cardboard Box Cost:", '${:,.2f}'.format(total_box_boot_cost))
+print("--Total Cardboard Box Cost:", '${:,.2f}'.format(total_box_shoe_cost+total_box_boot_cost))
+print("Total Storage Cost:", '${:,.2f}'.format(total_storage_cost))
+print("Total Sneaker Postage Cost:", '${:,.2f}'.format(total_postage_shoes))
+print("Total Boot Postage Cost:", '${:,.2f}'.format(total_postage_boots))
+print("--Total Postage Cost:", '${:,.2f}'.format(total_postage_shoes+total_postage_boots))
+print("Total Cold Storage Cost:", '${:,.2f}'.format(total_cold_storage_cost))
+print("Total Returns Processing:", '${:,.2f}'.format(total_returns_cost))
 print("Total Yearly Cost:", '${:,.2f}'.format(yearly_cost))
+print("Total Shipped Sneakers", total_outbound_sneakers, "totaling", '${:,.2f}'.format(total_outbound_sneakers*msrp_sneaker), "in Revenue.") 
+print("Total Shipped Boots", total_outbound_boots, "totaling", '${:,.2f}'.format(total_outbound_boots*msrp_boot), "in Revenue.") 
+print("Total Shipped Units", (total_outbound_sneakers+total_outbound_boots), "totaling", '${:,.2f}'.format(total_outbound_boots*msrp_boot+total_outbound_sneakers*msrp_sneaker), "in Revenue")
+print("Total Fufillment Cost (not including postage) as a % of Total Revenue", '{:,.2f}'.format((yearly_cost-(total_postage_shoes+total_postage_boots))/(total_outbound_boots*msrp_boot+total_outbound_sneakers*msrp_sneaker)*100),"%") 
+print("Total Fufillment Cost as a % of Total Revenue", '{:,.2f}'.format(yearly_cost/(total_outbound_boots*msrp_boot+total_outbound_sneakers*msrp_sneaker)*100),"%") 
